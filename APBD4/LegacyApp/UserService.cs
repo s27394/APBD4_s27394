@@ -6,27 +6,37 @@ namespace LegacyApp
     {
         public bool AddUser(string firstName, string lastName, string email, DateTime dateOfBirth, int clientId)
         {
-            if (string.IsNullOrEmpty(firstName) || string.IsNullOrEmpty(lastName))
+            if (
+                !(ValidateFirstNameInput(firstName) &&
+                  ValidateLastNameInput(lastName) &&
+                  ValidateEmailInput(email) &&
+                  VerifyIfUserIsAnAdult(dateOfBirth)))
             {
                 return false;
             }
 
-            if (!email.Contains("@") && !email.Contains("."))
+            var newUser = CreateUser(firstName, lastName, email, dateOfBirth, clientId);
+
+            if (UserHasLargeEnoughCreditLimit(newUser))
+            {
+                UserDataAccess.AddUser(newUser);
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool UserHasLargeEnoughCreditLimit(User newUser){
+            if (newUser.HasCreditLimit && newUser.CreditLimit < 500)
             {
                 return false;
             }
+            return true;
+        }
 
-            var now = DateTime.Now;
-            int age = now.Year - dateOfBirth.Year;
-            if (now.Month < dateOfBirth.Month || (now.Month == dateOfBirth.Month && now.Day < dateOfBirth.Day)) age--;
-
-            if (age < 21)
-            {
-                return false;
-            }
-
-            var clientRepository = new ClientRepository();
-            var client = clientRepository.GetById(clientId);
+        private User CreateUser(string firstName, string lastName, string email, DateTime dateOfBirth, int clientId)
+        {
+            var client = RetrieveClientFromDbById(clientId);
 
             var user = new User
             {
@@ -37,16 +47,21 @@ namespace LegacyApp
                 LastName = lastName
             };
 
-            if (client.Type == "VeryImportantClient")
+            SetCreditLimit(user, client.Type);
+            return user;
+        }
+
+        private void SetCreditLimit(User user, string clientType)
+        {
+            if (clientType == "VeryImportantClient")
             {
                 user.HasCreditLimit = false;
             }
-            else if (client.Type == "ImportantClient")
+            else if (clientType == "ImportantClient")
             {
                 using (var userCreditService = new UserCreditService())
                 {
-                    int creditLimit = userCreditService.GetCreditLimit(user.LastName, user.DateOfBirth);
-                    creditLimit = creditLimit * 2;
+                    int creditLimit = 2 * userCreditService.GetCreditLimit(user.LastName, user.DateOfBirth);
                     user.CreditLimit = creditLimit;
                 }
             }
@@ -59,13 +74,60 @@ namespace LegacyApp
                     user.CreditLimit = creditLimit;
                 }
             }
+        }
 
-            if (user.HasCreditLimit && user.CreditLimit < 500)
+        private Client RetrieveClientFromDbById(int clientId)
+        {
+            var clientRepository = new ClientRepository();
+            var client = clientRepository.GetById(clientId);
+            return client;
+        }
+
+        private bool ValidateFirstNameInput(string firstName)
+        {
+            return !string.IsNullOrEmpty(firstName);
+        }
+
+        private bool ValidateLastNameInput(string lastName)
+        {
+            return !string.IsNullOrEmpty(lastName);
+        }
+
+        private bool ValidateEmailInput(string email)
+        {
+            if (email.Contains("@") && email.Contains("."))
+            {
+                return true;
+            }
+
+            return false;
+
+        }
+
+        private bool VerifyIfUserIsAnAdult(DateTime dateOfBirth)
+        {
+            var age = GetUsersAge(dateOfBirth);
+            return age >= 21;
+        }
+
+        private int GetUsersAge(DateTime dateOfBirth)
+        {
+            var now = DateTime.Now;
+            int age = now.Year - dateOfBirth.Year;
+            if (!DidUserHaveBirthdayThisYear(now, dateOfBirth))
+            {
+                age--;
+            }
+            return age;
+        }
+
+        private bool DidUserHaveBirthdayThisYear(DateTime now, DateTime dateOfBirth)
+        {
+            if (now.Month < dateOfBirth.Month || (now.Month == dateOfBirth.Month && now.Day < dateOfBirth.Day))
             {
                 return false;
             }
 
-            UserDataAccess.AddUser(user);
             return true;
         }
     }
